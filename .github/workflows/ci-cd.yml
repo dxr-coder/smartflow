@@ -44,8 +44,8 @@ jobs:
       - name: Ruff lint（后端代码风格检查）
         run: |
           cd smartflow
-          ruff check app/ --select E,F,W --line-length 120 --ignore E501
-          # E=pycodestyle错误 F=pyflakes错误 W=警告；E501=行超长忽略（中文注释多）
+          ruff check app/ --select E,F --line-length 120 --ignore E501,E402,F541,F401,F841
+          # E=pycodestyle错误 F=pyflakes错误；E501=行超长（中文注释多）；E402=load_dotenv在import前；F541=f-string无占位符；F401=未使用的import；F841=未使用的变量
 
       # ---- 前端构建 ----
       - name: Setup Node

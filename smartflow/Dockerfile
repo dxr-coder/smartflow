@@ -19,8 +19,8 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 装依赖到 /install（独立目录，方便 Stage 2 整体拷贝）
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 不指定镜像源：GitHub Actions 海外服务器连不上清华镜像，用官方 PyPI
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---------- Stage 2: runtime（精简运行时） ----------
 FROM python:3.11-slim
