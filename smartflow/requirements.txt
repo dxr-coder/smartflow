@@ -1,0 +1,43 @@
+# ========== Web 框架 ==========
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart          # 文件上传需要
+
+# ========== 数据库 ==========
+pymysql
+DBUtils                   # 连接池（v5 Phase B）
+
+# ========== 缓存与限流 ==========
+redis                     # Redis 客户端（v5 补全）
+
+# ========== 认证 ==========
+PyJWT                     # JWT 签发/校验（v5 补全）
+bcrypt                    # 密码哈希（v5 补全）
+
+# ========== 配置管理 ==========
+python-dotenv
+
+# ========== LLM 调用 ==========
+openai
+httpx
+
+# ========== LangChain（Agent + RAG） ==========
+langchain-openai
+langchain-core
+langchain-text-splitters
+langgraph                 # Agent 编排（v5 补全）
+
+# ========== 向量数据库 + Embedding ==========
+chromadb
+sentence-transformers
+
+# ========== 文档解析（知识库上传） ==========
+pypdf                     # PDF 解析
+PyMuPDF                   # PDF 解析（fitz）
+python-docx               # Word 解析
+openpyxl                  # Excel 解析
+beautifulsoup4            # HTML 解析
+
+# ========== 评测 ==========
+# （JUDGE 用 openai SDK，无需额外包）

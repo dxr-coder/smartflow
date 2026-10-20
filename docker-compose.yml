@@ -1,0 +1,101 @@
+# ========== SmartFlow 多服务编排（v5 生产级） ==========
+#
+# 功能：一键启动 4 个服务（backend + frontend + mysql + redis）
+# 用法：docker compose up -d --build（后台） / docker compose down（停止）
+# 数据流：frontend(nginx:80) → backend(FastAPI:8000) → mysql + redis + ChromaDB(卷)
+#
+# v5 变更（相对旧版）：
+# - 新增 Redis 服务（应用硬依赖，旧版缺失）
+# - 新增 frontend 服务（nginx 静态 + API 反代）
+# - MySQL/Redis 加 healthcheck，backend 依赖 healthy 才启动
+# - ChromaDB 持久化到卷（旧版容器删了就丢）
+# - 自定义网络（服务名互相可达）
+
+services:
+  # ========== FastAPI 后端 ==========
+  backend:
+    build:
+      context: ./smartflow           # monorepo：backend 在 smartflow/ 子目录
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"                  # 直接暴露 8000（调试用；生产走 frontend nginx）
+    env_file:
+      - ./smartflow/.env
+    environment:
+      # 容器内服务名互访，覆盖 .env 里的 localhost
+      DB_HOST: mysql
+      REDIS_HOST: redis
+      CHROMA_PERSIST_DIR: /app/chroma_db
+    depends_on:
+      mysql:
+        condition: service_healthy   # MySQL healthy 后才启动 backend
+      redis:
+        condition: service_healthy    # Redis healthy 后才启动 backend
+    volumes:
+      - chroma_data:/app/chroma_db    # ChromaDB 持久化
+      - uploads_data:/app/uploads     # 上传文件持久化
+    restart: unless-stopped
+    networks:
+      - smartflow-net
+
+  # ========== Vue3 前端（nginx） ==========
+  frontend:
+    build:
+      context: ./smartflow-web
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"                     # 浏览器访问 http://localhost:8080
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - smartflow-net
+
+  # ========== MySQL 数据库 ==========
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: mianshi
+    ports:
+      - "3306:3306"                   # 暴露给宿主机（调试用）
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:                      # 健康检查：mysqladmin ping
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s               # MySQL 首次启动慢，给 30s 缓冲
+    restart: unless-stopped
+    networks:
+      - smartflow-net
+
+  # ========== Redis 缓存 ==========
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes   # AOF 持久化
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:                      # 健康检查：redis-cli ping
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - smartflow-net
+
+# ========== 数据卷 ==========
+volumes:
+  mysql_data:      # MySQL 数据
+  redis_data:      # Redis AOF 文件
+  chroma_data:     # ChromaDB 向量库
+  uploads_data:    # 上传的 PDF 等文件
+
+# ========== 自定义网络 ==========
+networks:
+  smartflow-net:
+    driver: bridge

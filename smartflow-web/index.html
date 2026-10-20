@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="SmartFlow 企业智能服务台 — AI 驱动的一体化服务工作台" />
+    <meta name="theme-color" content="#f7f7fa" />
+    <title>SmartFlow</title>
+    <script>
+      // 主题预设：默认亮色，localStorage 记录 dark 时切暗。背景与状态栏色同步防止闪烁。
+      ;(function () {
+        var dark = false
+        try {
+          dark = localStorage.getItem('sf-theme') === 'dark'
+        } catch (e) {}
+        var root = document.documentElement
+        var bg = dark ? '#09090b' : '#f7f7fa'
+        if (!dark) root.classList.add('light')
+        root.style.background = bg
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', bg)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

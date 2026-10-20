@@ -1,0 +1,20 @@
+/**
+ * UI 组件库 barrel — 按需 import 各组件，此处统一出口
+ */
+export { default as AppButton } from './AppButton.vue'
+export { default as AppBadge } from './AppBadge.vue'
+export { default as AppInput } from './AppInput.vue'
+export { default as AppTextarea } from './AppTextarea.vue'
+export { default as AppSelect } from './AppSelect.vue'
+export { default as AppCard } from './AppCard.vue'
+export { default as AppTable } from './AppTable.vue'
+export { default as AppModal } from './AppModal.vue'
+export { default as AppDrawer } from './AppDrawer.vue'
+export { default as AppToastHost } from './AppToastHost.vue'
+export { default as AppSkeleton } from './AppSkeleton.vue'
+export { default as AppEmptyState } from './AppEmptyState.vue'
+export { default as AppAvatar } from './AppAvatar.vue'
+export { default as AppTabs } from './AppTabs.vue'
+export { default as AppPagination } from './AppPagination.vue'
+export { default as AppStepper } from './AppStepper.vue'
+export { default as AppDropzone } from './AppDropzone.vue'

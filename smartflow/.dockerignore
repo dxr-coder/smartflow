@@ -1,0 +1,31 @@
+# .dockerignore — 构建镜像时排除的文件
+#
+# 功能：告诉 Docker 哪些文件不要复制进镜像（减小体积、保护敏感信息）
+# 数据流：docker build 时读取此文件 → 跳过匹配的文件/目录
+
+# Python 运行时
+__pycache__
+*.pyc
+*.pyo
+
+# 敏感信息（运行时通过 env_file / K8s Secret 注入）
+.env
+.env.example
+
+# VCS 与 IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# 不需要进镜像的目录
+logs/
+data/
+uploads/
+chroma_db/
+tests/
+docs/               # 文档不部署（但 docs/knowledge/ 在 Dockerfile 里单独 COPY）
+
+# 脚本产物
+scripts/*.csv
+scripts/__pycache__
