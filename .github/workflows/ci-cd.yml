@@ -1,0 +1,114 @@
+# ========== SmartFlow CI/CD 流水线 ==========
+#
+# 功能：每次 push/PR 自动跑 lint → 构建前端 → 构建 Docker 镜像 → 推送到 GHCR
+# 触发：push to main / PR to main
+# 数据流：代码推送 → GitHub Actions 云端执行 → 镜像推到 ghcr.io/dxr-coder/
+#
+# 设计决策：
+# - lint 和 build 分两个 job 并行跑（省时间）
+# - Docker 构建只在 main 分支跑（PR 只验证代码质量，不浪费构建资源）
+# - 镜像 tag：git short sha + latest（sha 用于回滚，latest 用于部署）
+# - 不跑 pytest（项目暂无测试文件，预留位置）
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支多次 push 只跑最后一次（省资源）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ========== Job 1: 代码质量检查（PR 和 push 都跑） ==========
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      # ---- 后端 lint ----
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装后端依赖
+        run: |
+          cd smartflow
+          pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+          pip install ruff
+
+      - name: Ruff lint（后端代码风格检查）
+        run: |
+          cd smartflow
+          ruff check app/ --select E,F,W --line-length 120 --ignore E501
+          # E=pycodestyle错误 F=pyflakes错误 W=警告；E501=行超长忽略（中文注释多）
+
+      # ---- 前端构建 ----
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装前端依赖
+        run: |
+          cd smartflow-web
+          npm ci
+
+      - name: 构建前端（构建成功 = 无语法/类型错误）
+        run: |
+          cd smartflow-web
+          npm run build
+
+  # ========== Job 2: Docker 镜像构建 + 推送（只在 main push 时跑） ==========
+  build-and-push:
+    needs: lint-and-build          # 依赖 Job 1 通过
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write               # 推镜像到 GHCR 需要
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      # ---- 构建后端镜像 ----
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送后端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./smartflow
+          file: ./smartflow/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---- 构建前端镜像 ----
+      - name: 构建并推送前端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./smartflow-web
+          file: ./smartflow-web/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
