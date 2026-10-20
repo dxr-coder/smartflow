@@ -37,11 +37,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: 安装后端依赖
-        run: |
-          cd smartflow
-          pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-          pip install ruff
+      # ruff 是独立 linter，只读源码不跑代码，不需要装应用依赖（torch 等 ~2GB）
+      - name: 安装 ruff
+        run: pip install ruff
 
       - name: Ruff lint（后端代码风格检查）
         run: |
