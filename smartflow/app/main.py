@@ -68,3 +68,35 @@ app.include_router(eval_router)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/ready")
+def ready_check():
+    """就绪探针：DB + Redis 都通才算 ready（K8s readinessProbe 用这个）"""
+    import os
+    checks = {}
+    # 检 MySQL
+    try:
+        from app.database import get_db
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.close()
+        checks["mysql"] = "ok"
+    except Exception as e:
+        checks["mysql"] = f"fail: {e}"
+    # 检 Redis
+    try:
+        import redis as _redis
+        r = _redis.Redis(
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", 6379)),
+            socket_connect_timeout=2,
+            protocol=2,  # 兼容老版本 Redis 服务端
+        )
+        r.ping()
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"fail: {e}"
+    ok = all(v == "ok" for v in checks.values())
+    return {"status": "ready" if ok else "not_ready", "checks": checks}
+

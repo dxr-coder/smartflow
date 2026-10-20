@@ -14,7 +14,7 @@ import time
 import redis
 from app.config import REDIS_HOST, REDIS_PORT, REDIS_DB
 
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True, protocol=2)  # protocol=2 兼容老版本 Redis 服务端
 
 # ========== 配置 ==========
 RATE_LIMIT_PER_MINUTE = 10  # 普通用户每分钟最多10次

@@ -6,7 +6,7 @@
 import redis
 from app.config import REDIS_HOST, REDIS_PORT, REDIS_DB
 
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True, protocol=2)  # protocol=2 兼容老版本 Redis 服务端
 
 
 EXACT_TTL = 3600  # 精确匹配缓存 1 小时
@@ -30,15 +30,17 @@ def get_semantic_cached(question: str) -> str | None:
     import json
 
     query_vec = embed_text(question)
-    # 遍历所有语义缓存key
-    keys = r.keys('semantic:*')
+    # scan_iter 替代 keys：keys 是 O(N) 全库阻塞扫描，Redis 越大越慢；
+    # scan_iter 增量游标迭代，不阻塞其他命令（压测关键修复）
     best_score = 0
     best_answer = None
 
-    for key in keys:
-        data = json.loads(r.get(key))
+    for key in r.scan_iter(match='semantic:*', count=100):
+        val = r.get(key)
+        if not val:
+            continue
+        data = json.loads(val)
         cached_vec = data['embedding']
-        # 余弦相似度
         score = sum(a * b for a, b in zip(query_vec, cached_vec))
         if score > best_score:
             best_score = score
@@ -47,6 +49,7 @@ def get_semantic_cached(question: str) -> str | None:
     if best_score >= SEMANTIC_THRESHOLD:
         return best_answer
     return None
+
 
 
 def set_semantic_cached(question: str, answer: str):

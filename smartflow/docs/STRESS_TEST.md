@@ -39,6 +39,38 @@
 
 20 并发下 MySQL+Redis 完全没有压力，所有接口 P95 < 15ms。连接池 maxconnections=20 在此并发下够用。
 
+## chat-mock 场景结果（10 并发，2 分钟）
+
+### GPU vs CPU 对比
+
+embedding（bge-small-zh）+ reranker（bge-reranker）两个本地模型，从 CPU 迁移到 RTX 3050 GPU 后的对比：
+
+| 指标 | CPU 基线 | GPU | 提升 |
+|------|---------|-----|------|
+| 完成请求数 | 3 | 72 | **24 倍** |
+| P50 | 25,000ms | **7ms** | 缓存命中几乎瞬时 |
+| P75 | 105,000ms | 15ms | |
+| P90 | — | 44,000ms | 首次未命中请求 |
+| P95 | — | 57,000ms | |
+| 失败率 | 0% | 0% | |
+
+### 结果解读
+
+- **P50=7ms**：大部分请求命中语义缓存，直接返回，不走模型推理
+- **P90+ 首次请求慢**：未命中缓存的请求走完整链路（查询改写 LLM API → 检索 → 生成 LLM API），瓶颈从 CPU 推理转移到 **LLM API 网络延迟**
+- 模型推理本身（embedding + rerank）在 GPU 上已不是瓶颈
+
+### GPU 迁移改动
+
+两个文件各加一行 `DEVICE` 常量，自动检测 CUDA，无卡回退 CPU：
+
+- `app/services/embedding.py`：`SentenceTransformer(EMBEDDING_MODEL, device=DEVICE)`
+- `app/services/reranker.py`：`CrossEncoder(MODEL_NAME, device=DEVICE)`
+
+### 面试要点
+
+GPU 把推理瓶颈消掉后，压测显示剩余延迟主要来自外部 LLM API 调用（不可控），本地基础设施（检索+精排+缓存）已不是瓶颈。这正是压测分场景设计的意义——CRUD 测基础设施，chat-mock 测编排链路，chat-real 测端到端。
+
 ## 已知限制与瓶颈
 
 ### 1. 单进程瓶颈
