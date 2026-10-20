@@ -1,0 +1,147 @@
+# ========== K8s: Backend Deployment（FastAPI） ==========
+#
+# 功能：部署 SmartFlow 后端（RAG + Agent + 评测 + 工单）
+# 数据流：frontend nginx → backend:8000 → mysql + redis + ChromaDB(PVC)
+#
+# 关键设计决策（面试主动讲）：
+# 1. replicas: 1 —— 单副本，因为三处进程级状态：
+#    - eval 异步 job 表 _GEN_JOBS（内存 dict）
+#    - SLA 后台扫描线程（每 Pod 一个，多副本会重复扫描）
+#    - ChromaDB 本地目录（PVC 是 ReadWriteOnce，不能多 Pod 同时挂）
+#    要多副本需改：job 表→Redis/DB、SLA→分布式锁、Chroma→远程服务
+# 2. strategy: Recreate —— ChromaDB 本地文件，滚动更新时两个 Pod 同时写会坏
+# 3. liveness initialDelaySeconds: 60 —— 启动时加载 embedding + reranker 模型（~2GB），需要时间
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: smartflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: Recreate          # 单副本 + 本地文件存储，不能滚动更新
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          # 镜像由 CI/CD 推送到 GHCR，tag=git sha
+          image: ghcr.io/dxr-coder/smartflow/backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            # 敏感信息从 Secret 注入
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smartflow-secrets
+                  key: mysql-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: smartflow-secrets
+                  key: jwt-secret
+            - name: XIAOMI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: smartflow-secrets
+                  key: xiaomi-api-key
+            # 非敏感配置从 ConfigMap 注入
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: smartflow-config
+                  key: db-host
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: smartflow-config
+                  key: redis-host
+            - name: CHROMA_PERSIST_DIR
+              value: /app/chroma_db
+            - name: XIAOMI_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: smartflow-config
+                  key: xiaomi-base-url
+          # 资源：模型在内存里，给足 2-4Gi
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          # 存活探针：进程活着就行（/health 不查依赖）
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60      # 模型加载慢，给 60s
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # 就绪探针：DB + Redis 都通才接流量（/ready 查依赖）
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 30      # 比 liveness 早，先就绪再探活
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # 卷挂载：ChromaDB 向量库 + 上传文件
+          volumeMounts:
+            - name: chroma-data
+              mountPath: /app/chroma_db
+            - name: uploads-data
+              mountPath: /app/uploads
+      volumes:
+        - name: chroma-data
+          persistentVolumeClaim:
+            claimName: chroma-data
+        - name: uploads-data
+          persistentVolumeClaim:
+            claimName: uploads-data
+---
+# PVC：ChromaDB 向量库持久卷
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chroma-data
+  namespace: smartflow
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+# PVC：上传文件持久卷
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads-data
+  namespace: smartflow
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Service：ClusterIP，frontend 通过 backend:8000 访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: smartflow
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000

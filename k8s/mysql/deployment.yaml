@@ -1,0 +1,101 @@
+# ========== K8s: MySQL Deployment ==========
+#
+# 功能：部署 MySQL 8.0（主数据库）
+# 数据流：backend → mysql:3306（用户/工单/评测/审计等全部业务表）
+#
+# 单副本原因：MySQL 主从需要 GTID/复制配置，单实例 + PVC 持久化是合理起点
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: smartflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  strategy:
+    type: Recreate          # 有状态：先杀旧再起新，防两个 Pod 同时写数据卷
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            # 密码从 Secret 注入（不硬编码在 YAML 里）
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smartflow-secrets
+                  key: mysql-password
+            - name: MYSQL_DATABASE
+              value: mianshi
+          # 资源：MySQL 吃内存，给 512Mi-1Gi
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # 存活探针：mysqladmin ping
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+                - -p$(MYSQL_ROOT_PASSWORD)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # 就绪探针：同上，但更早开始
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+                - -p$(MYSQL_ROOT_PASSWORD)
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-data
+---
+# PVC：MySQL 数据持久卷（10Gi）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: smartflow
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Service：ClusterIP，backend 通过 mysql:3306 访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: smartflow
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306

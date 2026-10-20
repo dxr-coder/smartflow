@@ -1,0 +1,46 @@
+# ========== K8s: Ingress（统一入口） ==========
+#
+# 功能：外部流量路由——/ → frontend（静态页面），/api/* → backend
+# 数据流：用户浏览器 → Ingress → frontend:80（静态）或 backend:8000（API）
+#
+# 前提：集群需要装 NGINX Ingress Controller
+# kind 集群安装：kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smartflow-ingress
+  namespace: smartflow
+  annotations:
+    # NGINX Ingress Controller 专用注解
+    nginx.ingress.kubernetes.io/proxy-body-size: "300m"       # 文件上传大小
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"     # LLM 调用慢，给 120s
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"        # SSE 流式必须关缓冲
+spec:
+  # 无 TLS（本地 kind 集群；生产加 cert-manager + Let's Encrypt）
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # API 路径 → backend
+          - path: /chat/stream
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          # 其余路径 → frontend（nginx 静态）
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
